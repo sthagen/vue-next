@@ -23,6 +23,10 @@ const outputConfigs = {
     file: resolve(`dist/${name}.esm-bundler.js`),
     format: `es`
   },
+  'esm-browser': {
+    file: resolve(`dist/${name}.esm-browser.js`),
+    format: `es`
+  },
   cjs: {
     file: resolve(`dist/${name}.cjs.js`),
     format: `cjs`
@@ -31,14 +35,15 @@ const outputConfigs = {
     file: resolve(`dist/${name}.global.js`),
     format: `iife`
   },
-  esm: {
-    file: resolve(`dist/${name}.esm.js`),
-    format: `es`
-  },
-  // main "vue" package only
+
+  // runtime-only builds, for main "vue" package only
   'esm-bundler-runtime': {
     file: resolve(`dist/${name}.runtime.esm-bundler.js`),
     format: `es`
+  },
+  'esm-browser-runtime': {
+    file: resolve(`dist/${name}.runtime.esm-browser.js`),
+    format: 'es'
   },
   'global-runtime': {
     file: resolve(`dist/${name}.runtime.global.js`),
@@ -55,10 +60,13 @@ const packageConfigs = process.env.PROD_ONLY
 
 if (process.env.NODE_ENV === 'production') {
   packageFormats.forEach(format => {
-    if (format === 'cjs' && packageOptions.prod !== false) {
+    if (packageOptions.prod === false) {
+      return
+    }
+    if (format === 'cjs') {
       packageConfigs.push(createProductionConfig(format))
     }
-    if (/global/.test(format) || format === 'esm') {
+    if (/^(global|esm-browser)(-runtime)?/.test(format)) {
       packageConfigs.push(createMinifiedConfig(format))
     }
   })
@@ -77,10 +85,10 @@ function createConfig(format, output, plugins = []) {
 
   const isProductionBuild =
     process.env.__DEV__ === 'false' || /\.prod\.js$/.test(output.file)
-  const isGlobalBuild = /global/.test(format)
-  const isRawESMBuild = format === 'esm'
-  const isNodeBuild = format === 'cjs'
   const isBundlerESMBuild = /esm-bundler/.test(format)
+  const isBrowserESMBuild = /esm-browser/.test(format)
+  const isNodeBuild = format === 'cjs'
+  const isGlobalBuild = /global/.test(format)
 
   if (isGlobalBuild) {
     output.name = packageOptions.name
@@ -109,19 +117,40 @@ function createConfig(format, output, plugins = []) {
   const entryFile = /runtime$/.test(format) ? `src/runtime.ts` : `src/index.ts`
 
   const external =
-    isGlobalBuild || isRawESMBuild
-      ? []
-      : [
+    isGlobalBuild || isBrowserESMBuild
+      ? packageOptions.enableNonBrowserBranches
+        ? // externalize postcss for @vue/compiler-sfc
+          // because @rollup/plugin-commonjs cannot bundle it properly
+          ['postcss']
+        : // normal browser builds - non-browser only imports are tree-shaken,
+          // they are only listed here to suppress warnings.
+          ['source-map', '@babel/parser', 'estree-walker']
+      : // Node / esm-bundler builds. Externalize everything.
+        [
           ...Object.keys(pkg.dependencies || {}),
-          ...Object.keys(pkg.peerDependencies || {})
+          ...Object.keys(pkg.peerDependencies || {}),
+          'url' // for @vue/compiler-sfc
         ]
 
-  const nodePlugins = packageOptions.enableNonBrowserBranches
-    ? [
-        require('@rollup/plugin-node-resolve')(),
-        require('@rollup/plugin-commonjs')()
-      ]
-    : []
+  // the browser builds of @vue/compiler-sfc requires postcss to be available
+  // as a global (e.g. http://wzrd.in/standalone/postcss)
+  output.globals = {
+    postcss: 'postcss'
+  }
+
+  const nodePlugins =
+    packageOptions.enableNonBrowserBranches && format !== 'cjs'
+      ? [
+          require('@rollup/plugin-node-resolve')({
+            preferBuiltins: true
+          }),
+          require('@rollup/plugin-commonjs')({
+            sourceMap: false
+          }),
+          require('rollup-plugin-node-builtins')(),
+          require('rollup-plugin-node-globals')()
+        ]
+      : []
 
   return {
     input: resolve(entryFile),
@@ -136,8 +165,9 @@ function createConfig(format, output, plugins = []) {
       createReplacePlugin(
         isProductionBuild,
         isBundlerESMBuild,
+        isBrowserESMBuild,
         // isBrowserBuild?
-        (isGlobalBuild || isRawESMBuild || isBundlerESMBuild) &&
+        (isGlobalBuild || isBrowserESMBuild || isBundlerESMBuild) &&
           !packageOptions.enableNonBrowserBranches,
         isGlobalBuild,
         isNodeBuild
@@ -150,6 +180,9 @@ function createConfig(format, output, plugins = []) {
       if (!/Circular/.test(msg)) {
         warn(msg)
       }
+    },
+    treeshake: {
+      moduleSideEffects: false
     }
   }
 }
@@ -157,6 +190,7 @@ function createConfig(format, output, plugins = []) {
 function createReplacePlugin(
   isProduction,
   isBundlerESMBuild,
+  isBrowserESMBuild,
   isBrowserBuild,
   isGlobalBuild,
   isNodeBuild
@@ -173,9 +207,9 @@ function createReplacePlugin(
     __TEST__: false,
     // If the build is expected to run directly in the browser (global / esm builds)
     __BROWSER__: isBrowserBuild,
-    // is targeting bundlers?
-    __BUNDLER__: isBundlerESMBuild,
     __GLOBAL__: isGlobalBuild,
+    __ESM_BUNDLER__: isBundlerESMBuild,
+    __ESM_BROWSER__: isBrowserESMBuild,
     // is targeting Node (SSR)?
     __NODE_JS__: isNodeBuild,
     __FEATURE_OPTIONS__: true,

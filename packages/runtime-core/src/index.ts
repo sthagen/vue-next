@@ -16,6 +16,7 @@ export {
   isReadonly,
   // advanced
   customRef,
+  triggerRef,
   shallowRef,
   shallowReactive,
   shallowReadonly,
@@ -152,7 +153,8 @@ export {
   Ref,
   ComputedRef,
   UnwrapRef,
-  WritableComputedOptions
+  WritableComputedOptions,
+  ToRefs
 } from '@vue/reactivity'
 export {
   // types
