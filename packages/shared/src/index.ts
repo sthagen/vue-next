@@ -112,7 +112,7 @@ export const capitalize = cacheStringFunction(
 export const hasChanged = (value: any, oldValue: any): boolean =>
   value !== oldValue && (value === value || oldValue === oldValue)
 
-// for converting {{ interpolation }} values to displayed strings.
+// For converting {{ interpolation }} values to displayed strings.
 export const toDisplayString = (val: unknown): string => {
   return val == null
     ? ''
@@ -128,5 +128,8 @@ export const invokeArrayFns = (fns: Function[], arg?: any) => {
 }
 
 export const def = (obj: object, key: string | symbol, value: any) => {
-  Object.defineProperty(obj, key, { value })
+  Object.defineProperty(obj, key, {
+    configurable: true,
+    value
+  })
 }
