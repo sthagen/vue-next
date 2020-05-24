@@ -81,6 +81,7 @@ export interface FunctionalComponent<
   props?: ComponentPropsOptions<P>
   emits?: E | (keyof E)[]
   inheritAttrs?: boolean
+  inheritRef?: boolean
   displayName?: string
 }
 
@@ -549,7 +550,6 @@ let compile: CompileFunction | undefined
 /**
  * For runtime-dom to register the compiler.
  * Note the exported method uses any to avoid d.ts relying on the compiler types.
- * @internal
  */
 export function registerRuntimeCompiler(_compile: any) {
   compile = _compile

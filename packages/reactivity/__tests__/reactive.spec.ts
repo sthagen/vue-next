@@ -26,6 +26,20 @@ describe('reactivity/reactive', () => {
     expect(Object.keys(observed)).toEqual(['foo'])
   })
 
+  test('proto', () => {
+    const obj = {}
+    const reactiveObj = reactive(obj)
+    expect(isReactive(reactiveObj)).toBe(true)
+    // read prop of reactiveObject will cause reactiveObj[prop] to be reactive
+    // @ts-ignore
+    const prototype = reactiveObj['__proto__']
+    const otherObj = { data: ['a'] }
+    expect(isReactive(otherObj)).toBe(false)
+    const reactiveOther = reactive(otherObj)
+    expect(isReactive(reactiveOther)).toBe(true)
+    expect(reactiveOther.data[0]).toBe('a')
+  })
+
   test('nested reactives', () => {
     const original = {
       nested: {
@@ -172,6 +186,33 @@ describe('reactivity/reactive', () => {
       const props: any = shallowReactive({ n: reactive({ foo: 1 }) })
       props.n = reactive({ foo: 2 })
       expect(isReactive(props.n)).toBe(true)
+    })
+
+    test('should not observe when iterating', () => {
+      const shallowSet = shallowReactive(new Set())
+      const a = {}
+      shallowSet.add(a)
+
+      const spreadA = [...shallowSet][0]
+      expect(isReactive(spreadA)).toBe(false)
+    })
+
+    test('should not get reactive entry', () => {
+      const shallowMap = shallowReactive(new Map())
+      const a = {}
+      const key = 'a'
+
+      shallowMap.set(key, a)
+
+      expect(isReactive(shallowMap.get(key))).toBe(false)
+    })
+
+    test('should not get reactive on foreach', () => {
+      const shallowSet = shallowReactive(new Set())
+      const a = {}
+      shallowSet.add(a)
+
+      shallowSet.forEach(x => expect(isReactive(x)).toBe(false))
     })
   })
 })

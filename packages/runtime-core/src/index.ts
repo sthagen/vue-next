@@ -52,7 +52,7 @@ export { getCurrentInstance } from './component'
 // For raw render function users
 export { h } from './h'
 // Advanced render function utilities
-export { createVNode, cloneVNode, mergeProps } from './vnode'
+export { createVNode, cloneVNode, mergeProps, isVNode } from './vnode'
 // VNode types
 export { Fragment, Text, Comment, Static } from './vnode'
 // Built-in components
@@ -81,6 +81,13 @@ export {
   callWithAsyncErrorHandling,
   ErrorCodes
 } from './errorHandling'
+export {
+  resolveComponent,
+  resolveDirective,
+  resolveDynamicComponent
+} from './helpers/resolveAssets'
+// For integration with runtime compiler
+export { registerRuntimeCompiler } from './component'
 export {
   useTransitionState,
   resolveTransitionHooks,
@@ -204,11 +211,6 @@ export { HMRRuntime } from './hmr'
 // For compiler generated code
 // should sync with '@vue/compiler-core/src/runtimeConstants.ts'
 export { withCtx } from './helpers/withRenderContext'
-export {
-  resolveComponent,
-  resolveDirective,
-  resolveDynamicComponent
-} from './helpers/resolveAssets'
 export { renderList } from './helpers/renderList'
 export { toHandlers } from './helpers/toHandlers'
 export { renderSlot } from './helpers/renderSlot'
@@ -236,8 +238,6 @@ const _toDisplayString = toDisplayString
 const _camelize = camelize
 export { _toDisplayString as toDisplayString, _camelize as camelize }
 
-// For integration with runtime compiler
-export { registerRuntimeCompiler } from './component'
 // For test-utils
 export { transformVNodeArgs } from './vnode'
 

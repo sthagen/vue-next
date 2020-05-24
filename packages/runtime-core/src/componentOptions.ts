@@ -100,6 +100,7 @@ export interface ComponentOptionsBase<
   components?: Record<string, PublicAPIComponent>
   directives?: Record<string, Directive>
   inheritAttrs?: boolean
+  inheritRef?: boolean
   emits?: E | EE[]
 
   // Internal ------------------------------------------------------------------
@@ -217,7 +218,7 @@ type ComponentInjectOptions =
       string | symbol | { from: string | symbol; default?: unknown }
     >
 
-export interface LegacyOptions<
+interface LegacyOptions<
   Props,
   D,
   C extends ComputedOptions,

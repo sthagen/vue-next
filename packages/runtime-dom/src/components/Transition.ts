@@ -7,7 +7,7 @@ import {
   getCurrentInstance,
   callWithAsyncErrorHandling
 } from '@vue/runtime-core'
-import { isObject } from '@vue/shared'
+import { isObject, toNumber } from '@vue/shared'
 import { ErrorCodes } from 'packages/runtime-core/src/errorHandling'
 
 const TRANSITION = 'transition'
@@ -36,6 +36,8 @@ export const Transition: FunctionalComponent<TransitionProps> = (
   props,
   { slots }
 ) => h(BaseTransition, resolveTransitionProps(props), slots)
+
+Transition.inheritRef = true
 
 export const TransitionPropsValidators = (Transition.props = {
   ...(BaseTransition as any).props,
@@ -77,6 +79,7 @@ export function resolveTransitionProps({
     return baseProps
   }
 
+  const originEnterClass = [enterFromClass, enterActiveClass, enterToClass]
   const instance = getCurrentInstance()!
   const durations = normalizeDuration(duration)
   const enterDuration = durations && durations[0]
@@ -84,7 +87,7 @@ export function resolveTransitionProps({
   const { appear, onBeforeEnter, onEnter, onLeave } = baseProps
 
   // is appearing
-  if (appear && !getCurrentInstance()!.isMounted) {
+  if (appear && !instance.isMounted) {
     enterFromClass = appearFromClass
     enterActiveClass = appearActiveClass
     enterToClass = appearToClass
@@ -96,6 +99,10 @@ export function resolveTransitionProps({
     removeTransitionClass(el, enterToClass)
     removeTransitionClass(el, enterActiveClass)
     done && done()
+    // reset enter class
+    if (appear) {
+      ;[enterFromClass, enterActiveClass, enterToClass] = originEnterClass
+    }
   }
 
   const finishLeave: Hook = (el, done) => {
@@ -160,15 +167,15 @@ function normalizeDuration(
   if (duration == null) {
     return null
   } else if (isObject(duration)) {
-    return [toNumber(duration.enter), toNumber(duration.leave)]
+    return [NumberOf(duration.enter), NumberOf(duration.leave)]
   } else {
-    const n = toNumber(duration)
+    const n = NumberOf(duration)
     return [n, n]
   }
 }
 
-function toNumber(val: unknown): number {
-  const res = Number(val || 0)
+function NumberOf(val: unknown): number {
+  const res = toNumber(val)
   if (__DEV__) validateDuration(res)
   return res
 }
