@@ -204,13 +204,16 @@ export function generate(
   }
 
   // enter render function
-  if (genScopeId && !ssr) {
-    push(`const render = ${PURE_ANNOTATION}_withId(`)
-  }
   if (!ssr) {
+    if (genScopeId) {
+      push(`const render = ${PURE_ANNOTATION}_withId(`)
+    }
     push(`function render(_ctx, _cache) {`)
   } else {
-    push(`function ssrRender(_ctx, _push, _parent) {`)
+    if (genScopeId) {
+      push(`const ssrRender = ${PURE_ANNOTATION}_withId(`)
+    }
+    push(`function ssrRender(_ctx, _push, _parent, _attrs) {`)
   }
   indent()
 
@@ -272,7 +275,7 @@ export function generate(
   deindent()
   push(`}`)
 
-  if (genScopeId && !ssr) {
+  if (genScopeId) {
     push(`)`)
   }
 
@@ -698,13 +701,13 @@ function genVNodeCall(node: VNodeCall, context: CodegenContext) {
     dynamicProps,
     directives,
     isBlock,
-    isForBlock
+    disableTracking
   } = node
   if (directives) {
     push(helper(WITH_DIRECTIVES) + `(`)
   }
   if (isBlock) {
-    push(`(${helper(OPEN_BLOCK)}(${isForBlock ? `true` : ``}), `)
+    push(`(${helper(OPEN_BLOCK)}(${disableTracking ? `true` : ``}), `)
   }
   if (pure) {
     push(PURE_ANNOTATION)
@@ -891,7 +894,7 @@ function genTemplateLiteral(node: TemplateLiteral, context: CodegenContext) {
   for (let i = 0; i < l; i++) {
     const e = node.elements[i]
     if (isString(e)) {
-      push(e.replace(/`/g, '\\`'))
+      push(e.replace(/(`|\$|\\)/g, '\\$1'))
     } else {
       push('${')
       if (multilines) indent()
