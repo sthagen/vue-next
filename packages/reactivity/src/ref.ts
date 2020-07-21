@@ -150,7 +150,7 @@ type BaseTypes = string | number | boolean
  * }
  * ```
  *
- * Note that api-extractor somehow refuses to include `decalre module`
+ * Note that api-extractor somehow refuses to include `declare module`
  * augmentations in its generated d.ts, so we have to manually append them
  * to the final generated d.ts in our build process.
  */
@@ -165,10 +165,11 @@ type UnwrapRefSimple<T> = T extends
   | CollectionTypes
   | BaseTypes
   | Ref
-  | Array<any>
   | RefUnwrapBailTypes[keyof RefUnwrapBailTypes]
   ? T
-  : T extends object ? UnwrappedObject<T> : T
+  : T extends Array<any>
+    ? { [K in keyof T]: UnwrapRefSimple<T[K]> }
+    : T extends object ? UnwrappedObject<T> : T
 
 // Extract all known symbols from an object
 // when unwrapping Object the symbols are not `in keyof`, this should cover all the

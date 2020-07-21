@@ -72,9 +72,31 @@ export function shallowReactive<T extends object>(target: T): T {
   )
 }
 
+type Primitive = string | number | boolean | bigint | symbol | undefined | null
+type Builtin = Primitive | Function | Date | Error | RegExp
+export type DeepReadonly<T> = T extends Builtin
+  ? T
+  : T extends Map<infer K, infer V>
+    ? ReadonlyMap<DeepReadonly<K>, DeepReadonly<V>>
+    : T extends ReadonlyMap<infer K, infer V>
+      ? ReadonlyMap<DeepReadonly<K>, DeepReadonly<V>>
+      : T extends WeakMap<infer K, infer V>
+        ? WeakMap<DeepReadonly<K>, DeepReadonly<V>>
+        : T extends Set<infer U>
+          ? ReadonlySet<DeepReadonly<U>>
+          : T extends ReadonlySet<infer U>
+            ? ReadonlySet<DeepReadonly<U>>
+            : T extends WeakSet<infer U>
+              ? WeakSet<DeepReadonly<U>>
+              : T extends Promise<infer U>
+                ? Promise<DeepReadonly<U>>
+                : T extends {}
+                  ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
+                  : Readonly<T>
+
 export function readonly<T extends object>(
   target: T
-): Readonly<UnwrapNestedRefs<T>> {
+): DeepReadonly<UnwrapNestedRefs<T>> {
   return createReactiveObject(
     target,
     true,
@@ -119,12 +141,11 @@ function createReactiveObject(
     return target
   }
   // target already has corresponding Proxy
-  if (
-    hasOwn(target, isReadonly ? ReactiveFlags.READONLY : ReactiveFlags.REACTIVE)
-  ) {
-    return isReadonly
-      ? target[ReactiveFlags.READONLY]
-      : target[ReactiveFlags.REACTIVE]
+  const reactiveFlag = isReadonly
+    ? ReactiveFlags.READONLY
+    : ReactiveFlags.REACTIVE
+  if (hasOwn(target, reactiveFlag)) {
+    return target[reactiveFlag]
   }
   // only a whitelist of value types can be observed.
   if (!canObserve(target)) {
@@ -134,11 +155,7 @@ function createReactiveObject(
     target,
     collectionTypes.has(target.constructor) ? collectionHandlers : baseHandlers
   )
-  def(
-    target,
-    isReadonly ? ReactiveFlags.READONLY : ReactiveFlags.REACTIVE,
-    observed
-  )
+  def(target, reactiveFlag, observed)
   return observed
 }
 

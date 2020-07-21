@@ -166,10 +166,9 @@ export type ComponentPublicInstanceConstructor<
   new (): T
 }
 
-const publicPropertiesMap: Record<
-  string,
-  (i: ComponentInternalInstance) => any
-> = {
+type PublicPropertiesMap = Record<string, (i: ComponentInternalInstance) => any>
+
+const publicPropertiesMap: PublicPropertiesMap = extend(Object.create(null), {
   $: i => i,
   $el: i => i.vnode.el,
   $data: i => i.data,
@@ -180,11 +179,11 @@ const publicPropertiesMap: Record<
   $parent: i => i.parent && i.parent.proxy,
   $root: i => i.root && i.root.proxy,
   $emit: i => i.emit,
-  $options: i => (__FEATURE_OPTIONS__ ? resolveMergedOptions(i) : i.type),
+  $options: i => (__FEATURE_OPTIONS_API__ ? resolveMergedOptions(i) : i.type),
   $forceUpdate: i => () => queueJob(i.update),
   $nextTick: () => nextTick,
-  $watch: __FEATURE_OPTIONS__ ? i => instanceWatch.bind(i) : NOOP
-}
+  $watch: i => (__FEATURE_OPTIONS_API__ ? instanceWatch.bind(i) : NOOP)
+} as PublicPropertiesMap)
 
 const enum AccessTypes {
   SETUP,
@@ -211,7 +210,7 @@ export const PublicInstanceProxyHandlers: ProxyHandler<any> = {
       appContext
     } = instance
 
-    // let @vue/reatvitiy know it should never observe Vue public instances.
+    // let @vue/reactivity know it should never observe Vue public instances.
     if (key === ReactiveFlags.SKIP) {
       return true
     }
