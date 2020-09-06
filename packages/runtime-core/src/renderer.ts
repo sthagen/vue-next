@@ -19,6 +19,7 @@ import {
   setupComponent
 } from './component'
 import {
+  filterSingleRoot,
   renderComponentRoot,
   shouldUpdateComponent,
   updateHOCHostEl
@@ -720,6 +721,9 @@ function baseCreateRenderer(
         )
       }
 
+      if (dirs) {
+        invokeDirectiveHook(vnode, null, parentComponent, 'created')
+      }
       // props
       if (props) {
         for (const key in props) {
@@ -741,20 +745,21 @@ function baseCreateRenderer(
           invokeVNodeHook(vnodeHook, parentComponent, vnode)
         }
       }
-      if (dirs) {
-        invokeDirectiveHook(vnode, null, parentComponent, 'beforeMount')
-      }
-
       // scopeId
-      if (scopeId) {
-        hostSetScopeId(el, scopeId)
-      }
-      const treeOwnerId = parentComponent && parentComponent.type.__scopeId
-      // vnode's own scopeId and the current patched component's scopeId is
-      // different - this is a slot content node.
-      if (treeOwnerId && treeOwnerId !== scopeId) {
-        hostSetScopeId(el, treeOwnerId + '-s')
-      }
+      setScopeId(el, scopeId, vnode, parentComponent)
+    }
+    if (__DEV__ || __FEATURE_PROD_DEVTOOLS__) {
+      Object.defineProperty(el, '__vnode', {
+        value: vnode,
+        enumerable: false
+      })
+      Object.defineProperty(el, '__vueParentComponent', {
+        value: parentComponent,
+        enumerable: false
+      })
+    }
+    if (dirs) {
+      invokeDirectiveHook(vnode, null, parentComponent, 'beforeMount')
     }
     // #1583 For inside suspense + suspense not resolved case, enter hook should call when suspense resolved
     // #1689 For inside suspense + suspense resolved case, just call it
@@ -776,6 +781,38 @@ function baseCreateRenderer(
         needCallTransitionHooks && transition!.enter(el)
         dirs && invokeDirectiveHook(vnode, null, parentComponent, 'mounted')
       }, parentSuspense)
+    }
+  }
+
+  const setScopeId = (
+    el: RendererElement,
+    scopeId: string | false | null,
+    vnode: VNode,
+    parentComponent: ComponentInternalInstance | null
+  ) => {
+    if (scopeId) {
+      hostSetScopeId(el, scopeId)
+    }
+    if (parentComponent) {
+      const treeOwnerId = parentComponent.type.__scopeId
+      // vnode's own scopeId and the current patched component's scopeId is
+      // different - this is a slot content node.
+      if (treeOwnerId && treeOwnerId !== scopeId) {
+        hostSetScopeId(el, treeOwnerId + '-s')
+      }
+      let subTree = parentComponent.subTree
+      if (__DEV__ && subTree.type === Fragment) {
+        subTree =
+          filterSingleRoot(subTree.children as VNodeArrayChildren) || subTree
+      }
+      if (vnode === subTree) {
+        setScopeId(
+          el,
+          parentComponent.vnode.scopeId,
+          parentComponent.vnode,
+          parentComponent.parent
+        )
+      }
     }
   }
 
@@ -1449,9 +1486,6 @@ function baseCreateRenderer(
     nextVNode: VNode,
     optimized: boolean
   ) => {
-    if (__DEV__ && instance.type.__hmrId) {
-      optimized = false
-    }
     nextVNode.component = instance
     const prevProps = instance.vnode.props
     instance.vnode = nextVNode
@@ -2044,7 +2078,7 @@ function baseCreateRenderer(
       unregisterHMR(instance)
     }
 
-    const { bum, effects, update, subTree, um, da, isDeactivated } = instance
+    const { bum, effects, update, subTree, um } = instance
     // beforeUnmount hook
     if (bum) {
       invokeArrayFns(bum)
@@ -2063,14 +2097,6 @@ function baseCreateRenderer(
     // unmounted hook
     if (um) {
       queuePostRenderEffect(um, parentSuspense)
-    }
-    // deactivated hook
-    if (
-      da &&
-      !isDeactivated &&
-      instance.vnode.shapeFlag & ShapeFlags.COMPONENT_SHOULD_KEEP_ALIVE
-    ) {
-      queuePostRenderEffect(da, parentSuspense)
     }
     queuePostRenderEffect(() => {
       instance.isUnmounted = true

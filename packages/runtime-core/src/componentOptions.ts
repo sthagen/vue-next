@@ -42,11 +42,7 @@ import {
   WritableComputedOptions,
   toRaw
 } from '@vue/reactivity'
-import {
-  ComponentObjectPropsOptions,
-  ExtractPropTypes,
-  normalizePropsOptions
-} from './componentProps'
+import { ComponentObjectPropsOptions, ExtractPropTypes } from './componentProps'
 import { EmitsOptions } from './componentEmits'
 import { Directive } from './directives'
 import {
@@ -107,6 +103,7 @@ export interface ComponentOptionsBase<
   directives?: Record<string, Directive>
   inheritAttrs?: boolean
   emits?: (E | EE[]) & ThisType<void>
+  serverPrefetch?(): Promise<any>
 
   // Internal ------------------------------------------------------------------
 
@@ -384,6 +381,9 @@ export function applyOptions(
     watch: watchOptions,
     provide: provideOptions,
     inject: injectOptions,
+    // assets
+    components,
+    directives,
     // lifecycle
     beforeMount,
     mounted,
@@ -428,7 +428,7 @@ export function applyOptions(
   const checkDuplicateProperties = __DEV__ ? createDuplicateChecker() : null
 
   if (__DEV__) {
-    const propsOptions = normalizePropsOptions(options)[0]
+    const [propsOptions] = instance.propsOptions
     if (propsOptions) {
       for (const key in propsOptions) {
         checkDuplicateProperties!(OptionTypes.PROPS, key)
@@ -457,7 +457,11 @@ export function applyOptions(
       for (const key in injectOptions) {
         const opt = injectOptions[key]
         if (isObject(opt)) {
-          ctx[key] = inject(opt.from, opt.default)
+          ctx[key] = inject(
+            opt.from,
+            opt.default,
+            true /* treat default function as factory */
+          )
         } else {
           ctx[key] = inject(opt)
         }
@@ -485,23 +489,12 @@ export function applyOptions(
     }
   }
 
-  if (dataOptions) {
-    if (__DEV__ && !isFunction(dataOptions)) {
-      warn(
-        `The data option must be a function. ` +
-          `Plain object usage is no longer supported.`
-      )
-    }
-
-    if (asMixin) {
-      deferredData.push(dataOptions as DataFn)
-    } else {
-      resolveData(instance, dataOptions, publicThis)
-    }
-  }
   if (!asMixin) {
     if (deferredData.length) {
       deferredData.forEach(dataFn => resolveData(instance, dataFn, publicThis))
+    }
+    if (dataOptions) {
+      resolveData(instance, dataOptions, publicThis)
     }
     if (__DEV__) {
       const rawData = toRaw(instance.data)
@@ -518,6 +511,8 @@ export function applyOptions(
         }
       }
     }
+  } else if (dataOptions) {
+    deferredData.push(dataOptions as DataFn)
   }
 
   if (computedOptions) {
@@ -577,6 +572,32 @@ export function applyOptions(
     }
   }
 
+  // asset options.
+  // To reduce memory usage, only components with mixins or extends will have
+  // resolved asset registry attached to instance.
+  if (asMixin) {
+    if (components) {
+      extend(
+        instance.components ||
+          (instance.components = extend(
+            {},
+            (instance.type as ComponentOptions).components
+          ) as Record<string, ConcreteComponent>),
+        components
+      )
+    }
+    if (directives) {
+      extend(
+        instance.directives ||
+          (instance.directives = extend(
+            {},
+            (instance.type as ComponentOptions).directives
+          )),
+        directives
+      )
+    }
+  }
+
   // lifecycle options
   if (!asMixin) {
     callSyncHook('created', options, publicThis, globalMixins)
@@ -623,11 +644,11 @@ function callSyncHook(
   globalMixins: ComponentOptions[]
 ) {
   callHookFromMixins(name, globalMixins, ctx)
-  const baseHook = options.extends && options.extends[name]
-  if (baseHook) {
-    baseHook.call(ctx)
+
+  const { extends: base, mixins } = options
+  if (base) {
+    callHookFromExtends(name, base, ctx)
   }
-  const mixins = options.mixins
   if (mixins) {
     callHookFromMixins(name, mixins, ctx)
   }
@@ -637,12 +658,30 @@ function callSyncHook(
   }
 }
 
+function callHookFromExtends(
+  name: 'beforeCreate' | 'created',
+  base: ComponentOptions,
+  ctx: ComponentPublicInstance
+) {
+  if (base.extends) {
+    callHookFromExtends(name, base.extends, ctx)
+  }
+  const baseHook = base[name]
+  if (baseHook) {
+    baseHook.call(ctx)
+  }
+}
+
 function callHookFromMixins(
   name: 'beforeCreate' | 'created',
   mixins: ComponentOptions[],
   ctx: ComponentPublicInstance
 ) {
   for (let i = 0; i < mixins.length; i++) {
+    const chainedMixins = mixins[i].mixins
+    if (chainedMixins) {
+      callHookFromMixins(name, chainedMixins, ctx)
+    }
     const fn = mixins[i][name]
     if (fn) {
       fn.call(ctx)
@@ -666,6 +705,12 @@ function resolveData(
   dataFn: DataFn,
   publicThis: ComponentPublicInstance
 ) {
+  if (__DEV__ && !isFunction(dataFn)) {
+    warn(
+      `The data option must be a function. ` +
+        `Plain object usage is no longer supported.`
+    )
+  }
   const data = dataFn.call(publicThis, publicThis)
   if (__DEV__ && isPromise(data)) {
     warn(
@@ -728,18 +773,22 @@ export function resolveMergedOptions(
   if (!globalMixins.length && !mixins && !extendsOptions) return raw
   const options = {}
   globalMixins.forEach(m => mergeOptions(options, m, instance))
-  extendsOptions && mergeOptions(options, extendsOptions, instance)
-  mixins && mixins.forEach(m => mergeOptions(options, m, instance))
   mergeOptions(options, raw, instance)
   return (raw.__merged = options)
 }
 
 function mergeOptions(to: any, from: any, instance: ComponentInternalInstance) {
   const strats = instance.appContext.config.optionMergeStrategies
+  const { mixins, extends: extendsOptions } = from
+
+  extendsOptions && mergeOptions(to, extendsOptions, instance)
+  mixins &&
+    mixins.forEach((m: ComponentOptionsMixin) => mergeOptions(to, m, instance))
+
   for (const key in from) {
     if (strats && hasOwn(strats, key)) {
       to[key] = strats[key](to[key], from[key], instance.proxy, key)
-    } else if (!hasOwn(to, key)) {
+    } else {
       to[key] = from[key]
     }
   }
