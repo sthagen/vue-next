@@ -93,6 +93,7 @@ export {
   setTransitionHooks,
   getTransitionRawChildren
 } from './components/BaseTransition'
+export { initCustomFormatter } from './customFormatter'
 
 // For devtools
 export { devtools, setDevtoolsHook } from './devtools'
@@ -166,6 +167,7 @@ export {
   ComponentCustomProps,
   AllowedComponentProps
 } from './component'
+export { DefineComponent } from './apiDefineComponent'
 export {
   ComponentOptions,
   ComponentOptionsMixin,
@@ -174,8 +176,11 @@ export {
   ComponentOptionsWithArrayProps,
   ComponentCustomOptions,
   ComponentOptionsBase,
-  RenderFunction
+  RenderFunction,
+  MethodOptions,
+  ComputedOptions
 } from './componentOptions'
+export { EmitsOptions, ObjectEmitsOptions } from './componentEmits'
 export {
   ComponentPublicInstance,
   ComponentCustomProperties
@@ -195,7 +200,8 @@ export {
   PropType,
   ComponentPropsOptions,
   ComponentObjectPropsOptions,
-  ExtractPropTypes
+  ExtractPropTypes,
+  ExtractDefaultPropTypes
 } from './componentProps'
 export {
   Directive,
@@ -234,7 +240,12 @@ export {
   createCommentVNode,
   createStaticVNode
 } from './vnode'
-export { toDisplayString, camelize, capitalize } from '@vue/shared'
+export {
+  toDisplayString,
+  camelize,
+  capitalize,
+  toHandlerKey
+} from '@vue/shared'
 
 // For test-utils
 export { transformVNodeArgs } from './vnode'
@@ -250,7 +261,6 @@ import {
   setCurrentRenderingInstance
 } from './componentRenderUtils'
 import { isVNode, normalizeVNode } from './vnode'
-import { normalizeSuspenseChildren } from './components/Suspense'
 
 const _ssrUtils = {
   createComponentInstance,
@@ -258,8 +268,7 @@ const _ssrUtils = {
   renderComponentRoot,
   setCurrentRenderingInstance,
   isVNode,
-  normalizeVNode,
-  normalizeSuspenseChildren
+  normalizeVNode
 }
 
 /**

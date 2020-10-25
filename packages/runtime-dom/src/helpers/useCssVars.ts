@@ -2,11 +2,12 @@ import {
   ComponentPublicInstance,
   getCurrentInstance,
   onMounted,
-  watchEffect,
   warn,
   VNode,
   Fragment,
-  unref
+  unref,
+  onUpdated,
+  watchEffect
 } from '@vue/runtime-core'
 import { ShapeFlags } from '@vue/shared'
 
@@ -27,11 +28,10 @@ export function useCssVars(
       ? `${instance.type.__scopeId.replace(/^data-v-/, '')}-`
       : ``
 
-  onMounted(() => {
-    watchEffect(() => {
-      setVarsOnVNode(instance.subTree, getter(instance.proxy!), prefix)
-    })
-  })
+  const setVars = () =>
+    setVarsOnVNode(instance.subTree, getter(instance.proxy!), prefix)
+  onMounted(() => watchEffect(setVars))
+  onUpdated(setVars)
 }
 
 function setVarsOnVNode(
@@ -40,14 +40,12 @@ function setVarsOnVNode(
   prefix: string
 ) {
   if (__FEATURE_SUSPENSE__ && vnode.shapeFlag & ShapeFlags.SUSPENSE) {
-    const { isResolved, isHydrating, fallbackTree, subTree } = vnode.suspense!
-    if (isResolved || isHydrating) {
-      vnode = subTree
-    } else {
-      vnode.suspense!.effects.push(() => {
-        setVarsOnVNode(subTree, vars, prefix)
+    const suspense = vnode.suspense!
+    vnode = suspense.activeBranch!
+    if (suspense.pendingBranch && !suspense.isHydrating) {
+      suspense.effects.push(() => {
+        setVarsOnVNode(suspense.activeBranch!, vars, prefix)
       })
-      vnode = fallbackTree
     }
   }
 

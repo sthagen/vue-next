@@ -26,7 +26,12 @@ import { warn } from './warning'
 import { ErrorCodes, callWithErrorHandling } from './errorHandling'
 import { AppContext, createAppContext, AppConfig } from './apiCreateApp'
 import { Directive, validateDirectiveName } from './directives'
-import { applyOptions, ComponentOptions } from './componentOptions'
+import {
+  applyOptions,
+  ComponentOptions,
+  ComputedOptions,
+  MethodOptions
+} from './componentOptions'
 import {
   EmitsOptions,
   ObjectEmitsOptions,
@@ -61,7 +66,7 @@ export type Data = Record<string, unknown>
 export interface ComponentCustomProps {}
 
 /**
- * Default allowed non-declared props on ocmponent in TSX
+ * Default allowed non-declared props on component in TSX
  */
 export interface AllowedComponentProps {
   class?: unknown
@@ -74,11 +79,11 @@ export interface ComponentInternalOptions {
   /**
    * @internal
    */
-  __props?: Record<number, NormalizedPropsOptions>
+  __props?: NormalizedPropsOptions
   /**
    * @internal
    */
-  __emits?: Record<number, ObjectEmitsOptions | null>
+  __emits?: ObjectEmitsOptions | null
   /**
    * @internal
    */
@@ -118,13 +123,29 @@ export interface ClassComponent {
  * values, e.g. checking if its a function or not. This is mostly for internal
  * implementation code.
  */
-export type ConcreteComponent = ComponentOptions | FunctionalComponent<any, any>
+export type ConcreteComponent<
+  Props = {},
+  RawBindings = any,
+  D = any,
+  C extends ComputedOptions = ComputedOptions,
+  M extends MethodOptions = MethodOptions
+> =
+  | ComponentOptions<Props, RawBindings, D, C, M>
+  | FunctionalComponent<Props, any>
 
 /**
  * A type used in public APIs where a component type is expected.
  * The constructor type is an artificial type returned by defineComponent().
  */
-export type Component = ConcreteComponent | ComponentPublicInstanceConstructor
+export type Component<
+  Props = any,
+  RawBindings = any,
+  D = any,
+  C extends ComputedOptions = ComputedOptions,
+  M extends MethodOptions = MethodOptions
+> =
+  | ConcreteComponent<Props, RawBindings, D, C, M>
+  | ComponentPublicInstanceConstructor<Props>
 
 export { ComponentOptions }
 
@@ -246,10 +267,7 @@ export interface ComponentInternalInstance {
 
   // the rest are only for stateful components ---------------------------------
 
-  /**
-   * main proxy that serves as the public instance (`this`)
-   * @internal
-   */
+  // main proxy that serves as the public instance (`this`)
   proxy: ComponentPublicInstance | null
 
   /**
@@ -299,6 +317,11 @@ export interface ComponentInternalInstance {
    * @internal
    */
   suspense: SuspenseBoundary | null
+  /**
+   * suspense pending batch id
+   * @internal
+   */
+  suspenseId: number
   /**
    * @internal
    */
@@ -422,6 +445,7 @@ export function createComponentInstance(
 
     // suspense related
     suspense,
+    suspenseId: suspense ? suspense.pendingId : 0,
     asyncDep: null,
     asyncResolved: false,
 
@@ -525,7 +549,7 @@ function setupStatefulComponent(
     }
   }
   // 0. create render proxy property access cache
-  instance.accessCache = {}
+  instance.accessCache = Object.create(null)
   // 1. create public instance / render proxy
   // also mark it raw so it's never observed
   instance.proxy = new Proxy(instance.ctx, PublicInstanceProxyHandlers)
@@ -775,4 +799,8 @@ export function formatComponentName(
   }
 
   return name ? classify(name) : isRoot ? `App` : `Anonymous`
+}
+
+export function isClassComponent(value: unknown): value is ClassComponent {
+  return isFunction(value) && '__vccOpts' in value
 }

@@ -5,7 +5,8 @@ import {
   ComponentInternalOptions,
   Component,
   ConcreteComponent,
-  InternalRenderFunction
+  InternalRenderFunction,
+  LifecycleHooks
 } from './component'
 import {
   isFunction,
@@ -42,7 +43,11 @@ import {
   WritableComputedOptions,
   toRaw
 } from '@vue/reactivity'
-import { ComponentObjectPropsOptions, ExtractPropTypes } from './componentProps'
+import {
+  ComponentObjectPropsOptions,
+  ExtractPropTypes,
+  ExtractDefaultPropTypes
+} from './componentProps'
 import { EmitsOptions } from './componentEmits'
 import { Directive } from './directives'
 import {
@@ -51,6 +56,7 @@ import {
 } from './componentPublicInstance'
 import { warn } from './warning'
 import { VNodeChild } from './vnode'
+import { callWithAsyncErrorHandling } from './errorHandling'
 
 /**
  * Interface for declaring custom options.
@@ -81,7 +87,8 @@ export interface ComponentOptionsBase<
   Mixin extends ComponentOptionsMixin,
   Extends extends ComponentOptionsMixin,
   E extends EmitsOptions,
-  EE extends string = string
+  EE extends string = string,
+  Defaults = {}
 >
   extends LegacyOptions<Props, D, C, M, Mixin, Extends>,
     ComponentInternalOptions,
@@ -90,7 +97,7 @@ export interface ComponentOptionsBase<
     this: void,
     props: Props,
     ctx: SetupContext<E>
-  ) => RawBindings | RenderFunction | void
+  ) => Promise<RawBindings> | RawBindings | RenderFunction | void
   name?: string
   template?: string | object // can be a direct DOM node
   // Note: we are intentionally using the signature-less `Function` type here
@@ -148,6 +155,8 @@ export interface ComponentOptionsBase<
   __isFragment?: never
   __isTeleport?: never
   __isSuspense?: never
+
+  __defaults?: Defaults
 }
 
 export type ComponentOptionsWithoutProps<
@@ -160,20 +169,21 @@ export type ComponentOptionsWithoutProps<
   Extends extends ComponentOptionsMixin = ComponentOptionsMixin,
   E extends EmitsOptions = EmitsOptions,
   EE extends string = string
-> = ComponentOptionsBase<Props, RawBindings, D, C, M, Mixin, Extends, E, EE> & {
+> = ComponentOptionsBase<
+  Props,
+  RawBindings,
+  D,
+  C,
+  M,
+  Mixin,
+  Extends,
+  E,
+  EE,
+  {}
+> & {
   props?: undefined
 } & ThisType<
-    CreateComponentPublicInstance<
-      {},
-      RawBindings,
-      D,
-      C,
-      M,
-      Mixin,
-      Extends,
-      E,
-      Readonly<Props>
-    >
+    CreateComponentPublicInstance<{}, RawBindings, D, C, M, Mixin, Extends, E>
   >
 
 export type ComponentOptionsWithArrayProps<
@@ -187,7 +197,18 @@ export type ComponentOptionsWithArrayProps<
   E extends EmitsOptions = EmitsOptions,
   EE extends string = string,
   Props = Readonly<{ [key in PropNames]?: any }>
-> = ComponentOptionsBase<Props, RawBindings, D, C, M, Mixin, Extends, E, EE> & {
+> = ComponentOptionsBase<
+  Props,
+  RawBindings,
+  D,
+  C,
+  M,
+  Mixin,
+  Extends,
+  E,
+  EE,
+  {}
+> & {
   props: PropNames[]
 } & ThisType<
     CreateComponentPublicInstance<
@@ -212,8 +233,20 @@ export type ComponentOptionsWithObjectProps<
   Extends extends ComponentOptionsMixin = ComponentOptionsMixin,
   E extends EmitsOptions = EmitsOptions,
   EE extends string = string,
-  Props = Readonly<ExtractPropTypes<PropsOptions>>
-> = ComponentOptionsBase<Props, RawBindings, D, C, M, Mixin, Extends, E, EE> & {
+  Props = Readonly<ExtractPropTypes<PropsOptions>>,
+  Defaults = ExtractDefaultPropTypes<PropsOptions>
+> = ComponentOptionsBase<
+  Props,
+  RawBindings,
+  D,
+  C,
+  M,
+  Mixin,
+  Extends,
+  E,
+  EE,
+  Defaults
+> & {
   props: PropsOptions & ThisType<void>
 } & ThisType<
     CreateComponentPublicInstance<
@@ -224,16 +257,39 @@ export type ComponentOptionsWithObjectProps<
       M,
       Mixin,
       Extends,
-      E
+      E,
+      Props,
+      Defaults,
+      false
     >
   >
 
-export type ComponentOptions =
-  | ComponentOptionsWithoutProps<any, any, any, any, any>
-  | ComponentOptionsWithObjectProps<any, any, any, any, any>
-  | ComponentOptionsWithArrayProps<any, any, any, any, any>
+export type ComponentOptions<
+  Props = {},
+  RawBindings = any,
+  D = any,
+  C extends ComputedOptions = any,
+  M extends MethodOptions = any,
+  Mixin extends ComponentOptionsMixin = any,
+  Extends extends ComponentOptionsMixin = any,
+  E extends EmitsOptions = any
+> = ComponentOptionsBase<Props, RawBindings, D, C, M, Mixin, Extends, E> &
+  ThisType<
+    CreateComponentPublicInstance<
+      {},
+      RawBindings,
+      D,
+      C,
+      M,
+      Mixin,
+      Extends,
+      E,
+      Readonly<Props>
+    >
+  >
 
 export type ComponentOptionsMixin = ComponentOptionsBase<
+  any,
   any,
   any,
   any,
@@ -273,7 +329,7 @@ type ComponentInjectOptions =
   | string[]
   | Record<
       string | symbol,
-      string | symbol | { from: string | symbol; default?: unknown }
+      string | symbol | { from?: string | symbol; default?: unknown }
     >
 
 interface LegacyOptions<
@@ -314,7 +370,11 @@ interface LegacyOptions<
   updated?(): void
   activated?(): void
   deactivated?(): void
+  /** @deprecated use `beforeUnmount` instead */
+  beforeDestroy?(): void
   beforeUnmount?(): void
+  /** @deprecated use `unmounted` instead */
+  destroyed?(): void
   unmounted?(): void
   renderTracked?: DebuggerHook
   renderTriggered?: DebuggerHook
@@ -324,20 +384,22 @@ interface LegacyOptions<
   delimiters?: [string, string]
 }
 
-export type OptionTypesKeys = 'P' | 'B' | 'D' | 'C' | 'M'
+export type OptionTypesKeys = 'P' | 'B' | 'D' | 'C' | 'M' | 'Defaults'
 
 export type OptionTypesType<
   P = {},
   B = {},
   D = {},
   C extends ComputedOptions = {},
-  M extends MethodOptions = {}
+  M extends MethodOptions = {},
+  Defaults = {}
 > = {
   P: P
   B: B
   D: D
   C: C
   M: M
+  Defaults: Defaults
 }
 
 const enum OptionTypes {
@@ -368,6 +430,7 @@ export function applyOptions(
   options: ComponentOptions,
   deferredData: DataFn[] = [],
   deferredWatch: ComponentWatchOptions[] = [],
+  deferredProvide: (Data | Function)[] = [],
   asMixin: boolean = false
 ) {
   const {
@@ -391,7 +454,9 @@ export function applyOptions(
     updated,
     activated,
     deactivated,
+    beforeDestroy,
     beforeUnmount,
+    destroyed,
     unmounted,
     render,
     renderTracked,
@@ -410,19 +475,38 @@ export function applyOptions(
   // applyOptions is called non-as-mixin once per instance
   if (!asMixin) {
     isInBeforeCreate = true
-    callSyncHook('beforeCreate', options, publicThis, globalMixins)
+    callSyncHook(
+      'beforeCreate',
+      LifecycleHooks.BEFORE_CREATE,
+      options,
+      instance,
+      globalMixins
+    )
     isInBeforeCreate = false
     // global mixins are applied first
-    applyMixins(instance, globalMixins, deferredData, deferredWatch)
+    applyMixins(
+      instance,
+      globalMixins,
+      deferredData,
+      deferredWatch,
+      deferredProvide
+    )
   }
 
   // extending a base component...
   if (extendsOptions) {
-    applyOptions(instance, extendsOptions, deferredData, deferredWatch, true)
+    applyOptions(
+      instance,
+      extendsOptions,
+      deferredData,
+      deferredWatch,
+      deferredProvide,
+      true
+    )
   }
   // local mixins
   if (mixins) {
-    applyMixins(instance, mixins, deferredData, deferredWatch)
+    applyMixins(instance, mixins, deferredData, deferredWatch, deferredProvide)
   }
 
   const checkDuplicateProperties = __DEV__ ? createDuplicateChecker() : null
@@ -458,7 +542,7 @@ export function applyOptions(
         const opt = injectOptions[key]
         if (isObject(opt)) {
           ctx[key] = inject(
-            opt.from,
+            opt.from || key,
             opt.default,
             true /* treat default function as factory */
           )
@@ -564,12 +648,17 @@ export function applyOptions(
   }
 
   if (provideOptions) {
-    const provides = isFunction(provideOptions)
-      ? provideOptions.call(publicThis)
-      : provideOptions
-    for (const key in provides) {
-      provide(key, provides[key])
-    }
+    deferredProvide.push(provideOptions)
+  }
+  if (!asMixin && deferredProvide.length) {
+    deferredProvide.forEach(provideOptions => {
+      const provides = isFunction(provideOptions)
+        ? provideOptions.call(publicThis)
+        : provideOptions
+      for (const key in provides) {
+        provide(key, provides[key])
+      }
+    })
   }
 
   // asset options.
@@ -600,7 +689,13 @@ export function applyOptions(
 
   // lifecycle options
   if (!asMixin) {
-    callSyncHook('created', options, publicThis, globalMixins)
+    callSyncHook(
+      'created',
+      LifecycleHooks.CREATED,
+      options,
+      instance,
+      globalMixins
+    )
   }
   if (beforeMount) {
     onBeforeMount(beforeMount.bind(publicThis))
@@ -629,8 +724,14 @@ export function applyOptions(
   if (renderTriggered) {
     onRenderTriggered(renderTriggered.bind(publicThis))
   }
+  if (__DEV__ && beforeDestroy) {
+    warn(`\`beforeDestroy\` has been renamed to \`beforeUnmount\`.`)
+  }
   if (beforeUnmount) {
     onBeforeUnmount(beforeUnmount.bind(publicThis))
+  }
+  if (__DEV__ && destroyed) {
+    warn(`\`destroyed\` has been renamed to \`unmounted\`.`)
   }
   if (unmounted) {
     onUnmounted(unmounted.bind(publicThis))
@@ -639,52 +740,54 @@ export function applyOptions(
 
 function callSyncHook(
   name: 'beforeCreate' | 'created',
+  type: LifecycleHooks,
   options: ComponentOptions,
-  ctx: ComponentPublicInstance,
+  instance: ComponentInternalInstance,
   globalMixins: ComponentOptions[]
 ) {
-  callHookFromMixins(name, globalMixins, ctx)
-
+  callHookFromMixins(name, type, globalMixins, instance)
   const { extends: base, mixins } = options
   if (base) {
-    callHookFromExtends(name, base, ctx)
+    callHookFromExtends(name, type, base, instance)
   }
   if (mixins) {
-    callHookFromMixins(name, mixins, ctx)
+    callHookFromMixins(name, type, mixins, instance)
   }
   const selfHook = options[name]
   if (selfHook) {
-    selfHook.call(ctx)
+    callWithAsyncErrorHandling(selfHook.bind(instance.proxy!), instance, type)
   }
 }
 
 function callHookFromExtends(
   name: 'beforeCreate' | 'created',
+  type: LifecycleHooks,
   base: ComponentOptions,
-  ctx: ComponentPublicInstance
+  instance: ComponentInternalInstance
 ) {
   if (base.extends) {
-    callHookFromExtends(name, base.extends, ctx)
+    callHookFromExtends(name, type, base.extends, instance)
   }
   const baseHook = base[name]
   if (baseHook) {
-    baseHook.call(ctx)
+    callWithAsyncErrorHandling(baseHook.bind(instance.proxy!), instance, type)
   }
 }
 
 function callHookFromMixins(
   name: 'beforeCreate' | 'created',
+  type: LifecycleHooks,
   mixins: ComponentOptions[],
-  ctx: ComponentPublicInstance
+  instance: ComponentInternalInstance
 ) {
   for (let i = 0; i < mixins.length; i++) {
     const chainedMixins = mixins[i].mixins
     if (chainedMixins) {
-      callHookFromMixins(name, chainedMixins, ctx)
+      callHookFromMixins(name, type, chainedMixins, instance)
     }
     const fn = mixins[i][name]
     if (fn) {
-      fn.call(ctx)
+      callWithAsyncErrorHandling(fn.bind(instance.proxy!), instance, type)
     }
   }
 }
@@ -693,10 +796,18 @@ function applyMixins(
   instance: ComponentInternalInstance,
   mixins: ComponentOptions[],
   deferredData: DataFn[],
-  deferredWatch: ComponentWatchOptions[]
+  deferredWatch: ComponentWatchOptions[],
+  deferredProvide: (Data | Function)[]
 ) {
   for (let i = 0; i < mixins.length; i++) {
-    applyOptions(instance, mixins[i], deferredData, deferredWatch, true)
+    applyOptions(
+      instance,
+      mixins[i],
+      deferredData,
+      deferredWatch,
+      deferredProvide,
+      true
+    )
   }
 }
 
@@ -735,7 +846,9 @@ function createWatcher(
   publicThis: ComponentPublicInstance,
   key: string
 ) {
-  const getter = () => (publicThis as any)[key]
+  const getter = key.includes('.')
+    ? createPathGetter(publicThis, key)
+    : () => (publicThis as any)[key]
   if (isString(raw)) {
     const handler = ctx[raw]
     if (isFunction(handler)) {
@@ -759,7 +872,18 @@ function createWatcher(
       }
     }
   } else if (__DEV__) {
-    warn(`Invalid watch option: "${key}"`)
+    warn(`Invalid watch option: "${key}"`, raw)
+  }
+}
+
+function createPathGetter(ctx: any, path: string) {
+  const segments = path.split('.')
+  return () => {
+    let cur = ctx
+    for (let i = 0; i < segments.length && cur; i++) {
+      cur = cur[segments[i]]
+    }
+    return cur
   }
 }
 
