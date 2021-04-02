@@ -1,17 +1,7 @@
 import { reactive, watchEffect } from 'vue'
-import {
-  parse,
-  compileTemplate,
-  compileStyleAsync,
-  compileScript,
-  rewriteDefault,
-  CompilerError
-} from '@vue/compiler-sfc'
+import { compileFile, MAIN_FILE } from './sfcCompiler'
 
-const storeKey = 'sfc-code'
-const saved =
-  localStorage.getItem(storeKey) ||
-  `
+const welcomeCode = `
 <template>
   <h1>{{ msg }}</h1>
 </template>
@@ -19,168 +9,102 @@ const saved =
 <script setup>
 const msg = 'Hello World!'
 </script>
-
-<style scoped>
-h1 {
-  color: #42b983;
-}
-</style>
 `.trim()
 
-// @ts-ignore
-export const sandboxVueURL = import.meta.env.PROD
-  ? '/vue.runtime.esm-browser.js' // to be copied on build
-  : '/src/vue-dev-proxy'
-
-export const store = reactive({
-  code: saved,
-  compiled: {
-    executed: '',
+export class File {
+  filename: string
+  code: string
+  compiled = {
     js: '',
     css: '',
-    template: ''
+    ssr: ''
+  }
+
+  constructor(filename: string, code = '') {
+    this.filename = filename
+    this.code = code
+  }
+}
+
+interface Store {
+  files: Record<string, File>
+  activeFilename: string
+  readonly activeFile: File
+  readonly importMap: string | undefined
+  errors: (string | Error)[]
+}
+
+let files: Store['files'] = {}
+
+const savedFiles = location.hash.slice(1)
+if (savedFiles) {
+  const saved = JSON.parse(atob(savedFiles))
+  for (const filename in saved) {
+    files[filename] = new File(filename, saved[filename])
+  }
+} else {
+  files = {
+    'App.vue': new File(MAIN_FILE, welcomeCode)
+  }
+}
+
+export const store: Store = reactive({
+  files,
+  activeFilename: MAIN_FILE,
+  get activeFile() {
+    return store.files[store.activeFilename]
   },
-  errors: [] as (string | CompilerError | SyntaxError)[]
+  get importMap() {
+    const file = store.files['import-map.json']
+    return file && file.code
+  },
+  errors: []
 })
 
-const filename = 'Playground.vue'
-const id = 'scope-id'
-const compIdentifier = `__comp`
+watchEffect(() => compileFile(store.activeFile))
 
-watchEffect(async () => {
-  const { code, compiled } = store
-  if (!code.trim()) {
-    return
+for (const file in store.files) {
+  if (file !== MAIN_FILE) {
+    compileFile(store.files[file])
   }
+}
 
-  localStorage.setItem(storeKey, code)
-
-  const { errors, descriptor } = parse(code, { filename, sourceMap: true })
-  if (errors.length) {
-    store.errors = errors
-    return
-  }
-
-  const hasScoped = descriptor.styles.some(s => s.scoped)
-  let finalCode = ''
-
-  if (
-    (descriptor.script && descriptor.script.lang) ||
-    (descriptor.scriptSetup && descriptor.scriptSetup.lang) ||
-    descriptor.styles.some(s => s.lang) ||
-    (descriptor.template && descriptor.template.lang)
-  ) {
-    store.errors = [
-      'lang="x" pre-processors are not supported in the in-browser playground.'
-    ]
-    return
-  }
-
-  // script
-  if (descriptor.script || descriptor.scriptSetup) {
-    try {
-      const compiledScript = compileScript(descriptor, {
-        id,
-        refSugar: true,
-        inlineTemplate: true
-      })
-      compiled.js = compiledScript.content.trim()
-      finalCode +=
-        `\n` +
-        rewriteDefault(
-          rewriteVueImports(compiledScript.content),
-          compIdentifier
-        )
-    } catch (e) {
-      store.errors = [e]
-      return
-    }
-  } else {
-    compiled.js = ''
-    finalCode += `\nconst ${compIdentifier} = {}`
-  }
-
-  // template
-  if (descriptor.template && !descriptor.scriptSetup) {
-    const templateResult = compileTemplate({
-      source: descriptor.template.content,
-      filename,
-      id,
-      scoped: hasScoped,
-      slotted: descriptor.slotted,
-      isProd: false
-    })
-    if (templateResult.errors.length) {
-      store.errors = templateResult.errors
-      return
-    }
-
-    compiled.template = templateResult.code.trim()
-    finalCode +=
-      `\n` +
-      rewriteVueImports(templateResult.code).replace(
-        /\nexport (function|const) render/,
-        '$1 render'
-      )
-    finalCode += `\n${compIdentifier}.render = render`
-  } else {
-    compiled.template = descriptor.scriptSetup
-      ? '/* inlined in JS (script setup) */'
-      : '/* no template present */'
-  }
-  if (hasScoped) {
-    finalCode += `\n${compIdentifier}.__scopeId = ${JSON.stringify(
-      `data-v-${id}`
-    )}`
-  }
-
-  // styles
-  let css = ''
-  for (const style of descriptor.styles) {
-    if (style.module) {
-      // TODO error
-      continue
-    }
-
-    const styleResult = await compileStyleAsync({
-      source: style.content,
-      filename,
-      id,
-      scoped: style.scoped,
-      modules: !!style.module
-    })
-    if (styleResult.errors.length) {
-      // postcss uses pathToFileURL which isn't polyfilled in the browser
-      // ignore these errors for now
-      if (!styleResult.errors[0].message.includes('pathToFileURL')) {
-        store.errors = styleResult.errors
-      }
-      // proceed even if css compile errors
-    } else {
-      css += styleResult.code + '\n'
-    }
-  }
-  if (css) {
-    compiled.css = css.trim()
-    finalCode += `\ndocument.getElementById('__sfc-styles').innerHTML = ${JSON.stringify(
-      css
-    )}`
-  } else {
-    compiled.css = ''
-  }
-
-  store.errors = []
-  if (finalCode) {
-    compiled.executed =
-      `/* Exact code being executed in the preview iframe (different from production bundler output) */\n` +
-      finalCode
-  }
+watchEffect(() => {
+  history.replaceState({}, '', '#' + btoa(JSON.stringify(exportFiles())))
 })
 
-// TODO use proper parser
-function rewriteVueImports(code: string): string {
-  return code.replace(
-    /\b(import \{.*?\}\s+from\s+)(?:"vue"|'vue')/g,
-    `$1"${sandboxVueURL}"`
-  )
+export function exportFiles() {
+  const exported: Record<string, string> = {}
+  for (const filename in store.files) {
+    exported[filename] = store.files[filename].code
+  }
+  return exported
+}
+
+export function setActive(filename: string) {
+  store.activeFilename = filename
+}
+
+export function addFile(filename: string) {
+  const file = (store.files[filename] = new File(filename))
+
+  if (filename === 'import-map.json') {
+    file.code = `
+{
+  "imports": {
+
+  }
+}`.trim()
+  }
+
+  setActive(filename)
+}
+
+export function deleteFile(filename: string) {
+  if (confirm(`Are you sure you want to delete ${filename}?`)) {
+    if (store.activeFilename === filename) {
+      store.activeFilename = MAIN_FILE
+    }
+    delete store.files[filename]
+  }
 }

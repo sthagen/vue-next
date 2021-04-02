@@ -4,12 +4,12 @@
   </div>
 
   <div class="output-container">
-    <Preview v-if="mode === 'preview'" :code="store.compiled.executed" />
+    <Preview v-if="mode === 'preview'" />
     <CodeMirror
       v-else
       readonly
       :mode="mode === 'css' ? 'css' : 'javascript'"
-      :value="store.compiled[mode]"
+      :value="store.activeFile.compiled[mode]"
     />
   </div>
 </template>
@@ -20,9 +20,9 @@ import CodeMirror from '../codemirror/CodeMirror.vue'
 import { store } from '../store'
 import { ref } from 'vue'
 
-type Modes = 'preview' | 'executed' | 'js' | 'css' | 'template'
+const modes = ['preview', 'js', 'css', 'ssr'] as const
 
-const modes: Modes[] = ['preview', 'js', 'css', 'template', 'executed']
+type Modes = typeof modes[number]
 const mode = ref<Modes>('preview')
 </script>
 
@@ -35,23 +35,19 @@ const mode = ref<Modes>('preview')
 .tab-buttons {
   box-sizing: border-box;
   border-bottom: 1px solid #ddd;
+  background-color: white;
 }
 .tab-buttons button {
-  margin: 0;
   font-size: 13px;
-  font-family: 'Source Code Pro', monospace;
-  border: none;
-  outline: none;
-  background-color: #f8f8f8;
+  font-family: var(--font-code);
   padding: 8px 16px 6px;
   text-transform: uppercase;
-  cursor: pointer;
   color: #999;
   box-sizing: border-box;
 }
 
 button.active {
-  color: #42b983;
-  border-bottom: 3px solid #42b983;
+  color: var(--color-branding-dark);
+  border-bottom: 3px solid var(--color-branding-dark);
 }
 </style>

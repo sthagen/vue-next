@@ -848,7 +848,11 @@ function baseCreateRenderer(
     }
     if (parentComponent) {
       let subTree = parentComponent.subTree
-      if (__DEV__ && subTree.patchFlag & PatchFlags.DEV_ROOT_FRAGMENT) {
+      if (
+        __DEV__ &&
+        subTree.patchFlag > 0 &&
+        subTree.patchFlag & PatchFlags.DEV_ROOT_FRAGMENT
+      ) {
         subTree =
           filterSingleRoot(subTree.children as VNodeArrayChildren) || subTree
       }
@@ -1572,7 +1576,7 @@ function baseCreateRenderer(
     instance.vnode = nextVNode
     instance.next = null
     updateProps(instance, nextVNode.props, prevProps, optimized)
-    updateSlots(instance, nextVNode.children)
+    updateSlots(instance, nextVNode.children, optimized)
 
     pauseTracking()
     // props update may have triggered pre-flush watchers.
@@ -2096,7 +2100,16 @@ function baseCreateRenderer(
         invokeDirectiveHook(vnode, null, parentComponent, 'beforeUnmount')
       }
 
-      if (
+      if (shapeFlag & ShapeFlags.TELEPORT) {
+        ;(vnode.type as typeof TeleportImpl).remove(
+          vnode,
+          parentComponent,
+          parentSuspense,
+          optimized,
+          internals,
+          doRemove
+        )
+      } else if (
         dynamicChildren &&
         // #1153: fast path should not be taken for non-stable (v-for) fragments
         (type !== Fragment ||
@@ -2117,17 +2130,6 @@ function baseCreateRenderer(
         (!optimized && shapeFlag & ShapeFlags.ARRAY_CHILDREN)
       ) {
         unmountChildren(children as VNode[], parentComponent, parentSuspense)
-      }
-
-      if (shapeFlag & ShapeFlags.TELEPORT) {
-        ;(vnode.type as typeof TeleportImpl).remove(
-          vnode,
-          parentComponent,
-          parentSuspense,
-          optimized,
-          internals,
-          doRemove
-        )
       }
 
       if (doRemove) {
