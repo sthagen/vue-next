@@ -6,6 +6,7 @@ import {
   toggleDeprecationWarning
 } from '../../runtime-core/src/compat/compatConfig'
 import { triggerEvent } from './utils'
+import { h } from '@vue/runtime-core'
 
 beforeEach(() => {
   toggleDeprecationWarning(true)
@@ -18,6 +19,31 @@ beforeEach(() => {
 afterEach(() => {
   toggleDeprecationWarning(false)
   Vue.configureCompat({ MODE: 3 })
+})
+
+test('mode as function', () => {
+  const Foo = {
+    name: 'Foo',
+    render: (h: any) => h('div', 'foo')
+  }
+
+  const Bar = {
+    name: 'Bar',
+    data: () => ({ msg: 'bar' }),
+    render: (ctx: any) => h('div', ctx.msg)
+  }
+
+  toggleDeprecationWarning(false)
+  Vue.configureCompat({
+    MODE: comp => (comp && comp.name === 'Bar' ? 3 : 2)
+  })
+
+  const vm = new Vue({
+    components: { Foo, Bar },
+    template: `<div><foo/><bar/></div>`
+  }).$mount()
+
+  expect(vm.$el.innerHTML).toBe(`<div>foo</div><div>bar</div>`)
 })
 
 test('WATCH_ARRAY', async () => {
@@ -179,7 +205,7 @@ test('ATTR_FALSE_VALUE', () => {
   ).toHaveBeenWarned()
 })
 
-test('ATTR_ENUMERATED_COERSION', () => {
+test('ATTR_ENUMERATED_COERCION', () => {
   const vm = new Vue({
     template: `<div :draggable="null" :spellcheck="0" contenteditable="foo" />`
   }).$mount()
@@ -187,15 +213,15 @@ test('ATTR_ENUMERATED_COERSION', () => {
   expect(vm.$el.getAttribute('spellcheck')).toBe('true')
   expect(vm.$el.getAttribute('contenteditable')).toBe('true')
   expect(
-    (deprecationData[DeprecationTypes.ATTR_ENUMERATED_COERSION]
+    (deprecationData[DeprecationTypes.ATTR_ENUMERATED_COERCION]
       .message as Function)('draggable', null, 'false')
   ).toHaveBeenWarned()
   expect(
-    (deprecationData[DeprecationTypes.ATTR_ENUMERATED_COERSION]
+    (deprecationData[DeprecationTypes.ATTR_ENUMERATED_COERCION]
       .message as Function)('spellcheck', 0, 'true')
   ).toHaveBeenWarned()
   expect(
-    (deprecationData[DeprecationTypes.ATTR_ENUMERATED_COERSION]
+    (deprecationData[DeprecationTypes.ATTR_ENUMERATED_COERCION]
       .message as Function)('contenteditable', 'foo', 'true')
   ).toHaveBeenWarned()
 })

@@ -81,6 +81,7 @@ function createConfig(format, output, plugins = []) {
     process.exit(1)
   }
 
+  output.exports = 'auto'
   output.sourcemap = !!process.env.SOURCE_MAP
   output.externalLiveBindings = false
 
@@ -91,12 +92,14 @@ function createConfig(format, output, plugins = []) {
   const isNodeBuild = format === 'cjs'
   const isGlobalBuild = /global/.test(format)
   const isCompatBuild = !!packageOptions.compat
+  const isCompatPackage = pkg.name === '@vue/compat'
 
   if (isGlobalBuild) {
     output.name = packageOptions.name
   }
 
-  const shouldEmitDeclarations = process.env.TYPES != null && !hasTSChecked
+  const shouldEmitDeclarations =
+    pkg.types && process.env.TYPES != null && !hasTSChecked
 
   const tsPlugin = ts({
     check: process.env.NODE_ENV === 'production' && !hasTSChecked,
@@ -121,7 +124,7 @@ function createConfig(format, output, plugins = []) {
   // the compat build needs both default AND named exports. This will cause
   // Rollup to complain for non-ESM targets, so we use separate entries for
   // esm vs. non-esm builds.
-  if (isCompatBuild && (isBrowserESMBuild || isBundlerESMBuild)) {
+  if (isCompatPackage && (isBrowserESMBuild || isBundlerESMBuild)) {
     entryFile = /runtime$/.test(format)
       ? `src/esm-runtime.ts`
       : `src/esm-index.ts`
@@ -129,7 +132,7 @@ function createConfig(format, output, plugins = []) {
 
   let external = []
 
-  if (isGlobalBuild || isBrowserESMBuild || isCompatBuild) {
+  if (isGlobalBuild || isBrowserESMBuild || isCompatPackage) {
     if (!packageOptions.enableNonBrowserBranches) {
       // normal browser builds - non-browser only imports are tree-shaken,
       // they are only listed here to suppress warnings.

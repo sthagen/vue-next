@@ -6,6 +6,8 @@ import {
   deprecationData,
   toggleDeprecationWarning
 } from '../../runtime-core/src/compat/compatConfig'
+import { singletonApp } from '../../runtime-core/src/compat/global'
+import { createApp } from '../src/esm-index'
 
 beforeEach(() => {
   toggleDeprecationWarning(false)
@@ -143,22 +145,31 @@ describe('GLOBAL_EXTEND', () => {
   })
 
   it('should not merge nested mixins created with Vue.extend', () => {
+    const a = jest.fn();
+    const b = jest.fn();
+    const c = jest.fn();
+    const d = jest.fn();
     const A = Vue.extend({
-      created: () => {}
+      created: a
     })
     const B = Vue.extend({
       mixins: [A],
-      created: () => {}
+      created: b
     })
     const C = Vue.extend({
       extends: B,
-      created: () => {}
+      created: c
     })
     const D = Vue.extend({
       mixins: [C],
-      created: () => {}
+      created: d,
+      render() { return null },
     })
-    expect(D.options.created!.length).toBe(4)
+    new D().$mount()
+    expect(a.mock.calls.length).toStrictEqual(1)
+    expect(b.mock.calls.length).toStrictEqual(1)
+    expect(c.mock.calls.length).toStrictEqual(1)
+    expect(d.mock.calls.length).toStrictEqual(1)
   })
 
   it('should merge methods', () => {
@@ -280,6 +291,15 @@ describe('GLOBAL_PROTOTYPE', () => {
     const plain = new Vue() as any
     expect(plain.$test).toBeUndefined()
   })
+
+  test('should affect apps created via createApp()', () => {
+    Vue.prototype.$test = 1
+    const vm = createApp({
+      template: 'foo'
+    }).mount(document.createElement('div')) as any
+    expect(vm.$test).toBe(1)
+    delete Vue.prototype.$test
+  })
 })
 
 describe('GLOBAL_SET/DELETE', () => {
@@ -349,6 +369,20 @@ describe('GLOBAL_PRIVATE_UTIL', () => {
     expect(vm.$el.textContent).toBe('2')
   })
 
+  test('defineReactive on instance with key that starts with $', async () => {
+    const vm = new Vue({
+      beforeCreate() {
+        // @ts-ignore
+        Vue.util.defineReactive(this, '$foo', 1)
+      },
+      template: `<div>{{ $foo }}</div>`
+    }).$mount() as any
+    expect(vm.$el.textContent).toBe('1')
+    vm.$foo = 2
+    await nextTick()
+    expect(vm.$el.textContent).toBe('2')
+  })
+
   test('defineReactive with object value', () => {
     const obj: any = {}
     const val = { a: 1 }
@@ -380,4 +414,13 @@ describe('GLOBAL_PRIVATE_UTIL', () => {
     val.push(2)
     expect(n).toBe(2)
   })
+})
+
+test('global asset registration should affect apps created via createApp', () => {
+  Vue.component('foo', { template: 'foo' })
+  const vm = createApp({
+    template: '<foo/>'
+  }).mount(document.createElement('div')) as any
+  expect(vm.$el.textContent).toBe('foo')
+  delete singletonApp._context.components.foo
 })

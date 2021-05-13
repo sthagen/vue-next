@@ -1,5 +1,9 @@
 import Vue from '@vue/compat'
-import { toggleDeprecationWarning } from '../../runtime-core/src/compat/compatConfig'
+import {
+  DeprecationTypes,
+  toggleDeprecationWarning
+} from '../../runtime-core/src/compat/compatConfig'
+import { createApp } from '../src/esm-index'
 import { triggerEvent } from './utils'
 
 beforeEach(() => {
@@ -63,4 +67,19 @@ test('GLOBAL_IGNORED_ELEMENTS', () => {
     template: `<v-foo/><foo/>`
   })
   expect(el.innerHTML).toBe(`<v-foo></v-foo><foo></foo>`)
+})
+
+test('singleton config should affect apps created with createApp()', () => {
+  Vue.config.ignoredElements = [/^v-/, 'foo']
+  const el = document.createElement('div')
+  createApp({
+    template: `<v-foo/><foo/>`
+  }).mount(el)
+  expect(el.innerHTML).toBe(`<v-foo></v-foo><foo></foo>`)
+})
+
+test('config.optionMergeStrategies', () => {
+  toggleDeprecationWarning(true)
+  expect(typeof Vue.config.optionMergeStrategies.created).toBe('function')
+  expect(DeprecationTypes.CONFIG_OPTION_MERGE_STRATS).toHaveBeenWarned()
 })
